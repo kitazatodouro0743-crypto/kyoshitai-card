@@ -311,28 +311,51 @@ function fmtDate(d) {
   const parts = d.split('-');
   return `令和${parseInt(parts[0])-2018}年${parseInt(parts[1])}月${parseInt(parts[2])}日`;
 }
-function balanceLine(text) {
-  if (!text || text.length <= 10) return text;
-  var mid = Math.ceil(text.length / 2);
-  // 真ん中付近で自然な区切りを探す（括弧の前、「工事」「事業」の後など）
-  var best = -1, bestDist = 999;
-  for (var i = 3; i < text.length - 2; i++) {
-    var c = text[i];
-    var prev = text[i - 1];
-    var dist = Math.abs(i - mid);
-    // 区切りポイント: （の前、）の後、「工事」「事業」「委託」の後
-    var good = false;
-    if (c === '（' || c === '(') good = true;
-    if (prev === '）' || prev === ')') good = true;
-    if (prev === '線' && c !== '（' && c !== '(') good = true;
-    if (i >= 2 && text.substring(i - 2, i) === '工事') good = true;
-    if (i >= 2 && text.substring(i - 2, i) === '事業') good = true;
-    if (i >= 2 && text.substring(i - 2, i) === '委託') good = true;
-    if (good && dist < bestDist) { best = i; bestDist = dist; }
+// 工事名を n 行に分ける。区切りは各行がほぼ同じ長さになる位置の近くで、自然な所（括弧の前、括弧・工事・事業・委託・線・年度・全角スペースの後）を選ぶ
+function isGoodBreak(text, i) {
+  var c = text[i], prev = text[i - 1];
+  if (c === '（' || c === '(') return true;
+  if (prev === '）' || prev === ')' || prev === '　') return true;
+  if (prev === '線' && c !== '（' && c !== '(') return true;
+  var two = text.substring(i - 2, i);
+  return two === '工事' || two === '事業' || two === '委託' || two === '年度';
+}
+function splitLines(text, n) {
+  if (n <= 1) return [text];
+  var lines = [], start = 0;
+  for (var k = 1; k < n; k++) {
+    var target = Math.round(text.length * k / n), best = -1, bestDist = 999;
+    for (var i = Math.max(start + 2, target - 6); i <= Math.min(text.length - 2, target + 6); i++) {
+      if (isGoodBreak(text, i) && Math.abs(i - target) < bestDist) { best = i; bestDist = Math.abs(i - target); }
+    }
+    if (best === -1) best = target;
+    lines.push(text.substring(start, best));
+    start = best;
   }
-  // 良い区切りが見つからなければ真ん中で切る
-  if (best === -1) best = mid;
-  return text.substring(0, best) + '<br>' + text.substring(best);
+  lines.push(text.substring(start));
+  return lines;
+}
+// 行の高さは変えずに、工事名が枠に収まる一番大きい文字で、行数を少なく並べる
+// 印刷のカードは画面より約4%狭いので、横幅は96%で判定する
+function fitKojimei(text) {
+  var el = document.getElementById('c_kojimei');
+  el.style.fontSize = ''; el.style.lineHeight = ''; el.style.whiteSpace = '';
+  if (!text) { set('c_kojimei', ''); return; }
+  var esc = function (t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); };
+  var sizes = [14, 13, 12, 11, 10];
+  for (var si = 0; si < sizes.length; si++) {
+    for (var n = 1; n <= 3; n++) {
+      el.style.fontSize = sizes[si] + 'px';
+      el.style.lineHeight = n === 3 ? '1.2' : '1.35';
+      el.style.whiteSpace = 'nowrap';
+      el.innerHTML = '<span>' + splitLines(text, n).map(esc).join('<br>') + '</span>';
+      el.style.color = '#1a1a2e';
+      var span = el.firstChild, cs = getComputedStyle(el);
+      var innerW = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      var innerH = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      if (span.offsetWidth <= innerW * 0.96 && span.offsetHeight <= innerH + 4) return;
+    }
+  }
 }
 function update() {
   var logo = val('f_logo');
@@ -340,7 +363,7 @@ function update() {
   img.src = logo ? LOGOS[logo] : AIHARA_LOGO;
   img.alt = logo || '有限会社 合原技建';
   set('c_hatchusha', getVal('f_hatchusha'));
-  set('c_kojimei', balanceLine(getVal('f_kojimei')));
+  fitKojimei(getVal('f_kojimei'));
   set('c_concrete', getVal('f_concrete'));
   var b1 = val('f_basho1'), b2 = getVal('f_basho2');
   var basho = [b1, b2].filter(Boolean).join('　');
